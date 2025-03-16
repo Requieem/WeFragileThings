@@ -5,99 +5,57 @@ using Fusion.Sockets;
 using System.Collections.Generic;
 using Random = UnityEngine.Random;
 
-public class NetworkSpawner : SimulationBehaviour, INetworkRunnerCallbacks
+public class NetworkSpawner : SimulationBehaviour, IPlayerJoined, IPlayerLeft
 {
     [SerializeField] private NetworkObject m_objectPrefab; // The networked prefab to spawn
-    [SerializeField] private NetworkRunner m_runner; // Reference to the NetworkRunner
     [SerializeField] private bool m_spawnOnPlayerJoin = false; // Should spawn objects on player join?
     [SerializeField] private Transform[] m_spawnPoints; // Predefined spawn locations
     private readonly Dictionary<PlayerRef, NetworkObject> m_spawnedObjects = new Dictionary<PlayerRef, NetworkObject>();
 
-    private void Awake()
+    public void SpawnObject(Vector3 position, Quaternion rotation, PlayerRef player)
     {
-        if (m_runner == null)
-        {
-            m_runner = FindAnyObjectByType<NetworkRunner>(); // Auto-assign if not set
-        }
-
-        if (m_runner == null)
-        {
-            Debug.LogError("Missing NetworkRunner!");
-            return;
-        }
-
-        // Register this class for network event callbacks
-        m_runner.AddCallbacks(this);
-    }
-
-    private void OnDestroy()
-    {
-        if (m_runner != null)
-        {
-            m_runner.RemoveCallbacks(this); // Prevent memory leaks
-        }
-    }
-
-    public void SpawnObject(Vector3 position, Quaternion rotation, PlayerRef? player = null)
-    {
-        if (m_runner == null || m_objectPrefab == null)
+        if (Runner == null || m_objectPrefab == null)
         {
             Debug.LogError("Missing NetworkRunner or Object Prefab!");
             return;
         }
 
-        if (!m_runner.IsSharedModeMasterClient)
+        if (Runner.LocalPlayer != player)
         {
-            Debug.LogError("Trying to spawn in non-Shared mode!");
-            return;
-        }
-        
-        if (!player.HasValue)
-        {
-            Debug.LogError("Trying to spawn object without player reference in Shared mode!");
+            Debug.LogError("Trying to spawn character from wrong client!");
             return;
         }
 
         // Spawn the object with optional ownership assignment
-        NetworkObject spawnedObject = m_runner.Spawn(m_objectPrefab, position, rotation, player);
+        NetworkObject spawnedObject = Runner.Spawn(m_objectPrefab, position, rotation, player);
 
         if (spawnedObject != null)
         {
-            Debug.Log($"Spawned network object at {position} for player {player?.PlayerId}");
-
-            // If the object was spawned for a player, track it
-            if (player.HasValue)
-            {
-                m_spawnedObjects[player.Value] = spawnedObject;
-            }
+            spawnedObject.AssignInputAuthority(player); // Assign authority to the player
+            m_spawnedObjects[player] = spawnedObject;
         }
         else
         {
             Debug.LogError("Failed to spawn network object!");
         }
     }
-
-    public void OnPlayerJoined(NetworkRunner runner, PlayerRef player)
+    
+    public void PlayerJoined(PlayerRef player)
     {
-        if (!runner.IsSharedModeMasterClient)
-            return;
+        if (player != Runner.LocalPlayer || !m_spawnOnPlayerJoin) return;
 
-        if (m_spawnOnPlayerJoin)
-        {
-            Vector3 spawnPosition = GetSpawnPosition();
-            SpawnObject(spawnPosition, Quaternion.identity, player);
-            Debug.Log($"Spawned object for player {player.PlayerId}");
-        }
+        Vector3 spawnPosition = GetSpawnPosition();
+        SpawnObject(spawnPosition, Quaternion.identity, player);
     }
 
-    public void OnPlayerLeft(NetworkRunner runner, PlayerRef player)
+    public void PlayerLeft(PlayerRef player)
     {
-        if (m_spawnedObjects.TryGetValue(player, out NetworkObject playerObject))
-        {
-            runner.Despawn(playerObject);
-            m_spawnedObjects.Remove(player);
-            Debug.Log($"Despawned object for player {player.PlayerId}");
-        }
+        if (!Runner.IsSharedModeMasterClient ||
+            !m_spawnedObjects.TryGetValue(player, out NetworkObject playerObject)) return;
+        
+        Runner.Despawn(playerObject);
+        m_spawnedObjects.Remove(player);
+        Debug.Log($"Despawned object for player {player.PlayerId}");
     }
 
     private Vector3 GetSpawnPosition()

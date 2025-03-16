@@ -58,6 +58,6 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   m_objectPrefab: {fileID: 1289589959887269078, guid: 585b797cb2be44a9e86a3d5d0f32618d, type: 3}
-  m_runner: {fileID: 0}
   m_spawnOnPlayerJoin: 1
-  m_spawnPoints: []
+  m_spawnPoints:
+  - {fileID: 4340768598570900550, guid: 8303120e0e4ac47b79eeb2f79ee0f4a1, type: 3}
